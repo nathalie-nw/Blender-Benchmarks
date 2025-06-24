@@ -1,19 +1,25 @@
+import csv
 import time
 from datetime import datetime
 
 import bpy
 
 
-def measure_load_time(filepath: str) -> None:
+def measure_load_time(filepath: str) -> float:
     start_time = time.time()
     bpy.ops.wm.open_mainfile(filepath)
-    end_time = time.time()
+    return time.time() - start_time
 
-    with open(
-        "C:\\Users\\work\\Desktop\\empty_4.3_4.4_openingtime.txt", "a"
-    ) as logfile:
-        logfile.write(
-            f"{datetime.now().isoformat()}: Ladezeit: {end_time - start_time:.2f} Sekunden\n"
-        )
 
-    # add filesize to write (amount of strokes/points frames etc)
+def write_result(
+    output_filepath: str, load_times: list[tuple[datetime, float]]
+) -> None:
+    with open(output_filepath, "w", newline="") as logfile:
+        writer = csv.DictWriter(logfile, delimiter=";", fieldnames=["time", "loadtime"])
+        writer.writeheader()
+        for timestamp, load_time in load_times:
+            writer.writerow({"time": timestamp, "loadtime": load_time})
+
+        # logfile.write(
+        #    f"{datetime.now().isoformat()}: Ladezeit: {load_time:.2f} Sekunden\n"
+        # )
