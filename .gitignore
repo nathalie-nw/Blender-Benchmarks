@@ -1,0 +1,3 @@
+src/Blender_Benchmarks.egg-info
+*.pyc
+.venv/
