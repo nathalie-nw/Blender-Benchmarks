@@ -1,5 +1,6 @@
-import time
 import os
+import time
+
 import bpy
 
 start_time = time.time()
@@ -9,11 +10,11 @@ start_time = time.time()
 if bpy.context.mode in {"PAINT_GREASE_PENCIL", "PAINT_GPENCIL"}:
     bpy.ops.ed.undo()
     print(
-    "\nFile:",
-    os.path.basename(bpy.data.filepath),
-    "\nundo time:",
-    time.time() - start_time,
-)
+        "\nFile:",
+        os.path.basename(bpy.data.filepath),
+        "\nundo time:",
+        time.time() - start_time,
+    )
 
 
 else:
