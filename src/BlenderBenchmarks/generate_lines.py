@@ -10,6 +10,7 @@ RANGE_X = (-5, 5)
 RANGE_Z = (-5, 5)
 LINE_WIDTH = 30
 GP_NAME = "GPencilObj"
+NUM_LAYERS = 1
 LAYER_NAME = "Layer"
 MATERIAL_NAME = "GP_Material"
 
@@ -48,13 +49,36 @@ material_index = 0
 
 
 # layer
-if LAYER_NAME in gp_obj.data.layers:
-    layer = gp_obj.data.layers[LAYER_NAME]
+layer = None
+
+if NUM_LAYERS == 1:
+    # use current selected layer
+    if hasattr(gp_obj.data, "layers") and gp_obj.data.layers.active:
+        layer = gp_obj.data.layers.active
+    else:
+        # If no active layer, just use the first one or create one
+        if len(gp_obj.data.layers) > 0:
+            layer = gp_obj.data.layers[0]
+        else:
+            # Create a new one if none exist
+            if use_gpencil_type == "GPENCIL":
+                layer = gp_obj.data.layers.new(LAYER_NAME)
+            else:
+                layer = gp_obj.data.layers.new(name=LAYER_NAME)
+
 else:
-    layer = gp_obj.data.layers.new(name=LAYER_NAME, set_active=True)
+    # Create multiple layers
+    for i in range(NUM_LAYERS):
+        if use_gpencil_type == "GPENCIL":
+            layer = gp_obj.data.layers.new(f"{LAYER_NAME}_{i+1}")
+        else:
+            layer = gp_obj.data.layers.new(name=f"{LAYER_NAME}_{i+1}", set_active=True)
+
+# Unlock
 layer.lock = False
 layer.hide = False
 
+#frame
 frame = None
 for f in layer.frames:
     if f.frame_number == FRAME_NUMBER:
