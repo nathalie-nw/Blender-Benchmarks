@@ -26,7 +26,7 @@ if use_gpencil_type == "GPENCIL":
     bpy.ops.gpencil.select_all(action="TOGGLE")
     bpy.ops.gpencil.copy()
 
-    for f in range(frames_copy):
+    for f in range(frames_copy - 1):
         target_frame += frames_to_copy
         target_frame = int(target_frame)
 
@@ -49,6 +49,9 @@ if use_gpencil_type == "GPENCIL":
         bpy.ops.gpencil.paste()
         bpy.ops.object.mode_set(mode="OBJECT")
 
+    bpy.context.area.type = "TEXT_EDITOR"
+
+
 # blender 4.5
 elif use_gpencil_type == "GREASEPENCIL":
     if not obj or obj.type != "GREASEPENCIL":
@@ -62,7 +65,7 @@ elif use_gpencil_type == "GREASEPENCIL":
     bpy.ops.grease_pencil.select_all()
     bpy.ops.grease_pencil.copy()
 
-    for f in range(frames_copy):
+    for f in range(frames_copy - 1):
         target_frame += frames_to_copy
         target_frame = int(target_frame)
 
