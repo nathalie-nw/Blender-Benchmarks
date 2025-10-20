@@ -4,11 +4,11 @@ import bpy
 from mathutils import Vector
 
 num_obj = 1
-frames = 10
+frames = 1
 position_radius = 5  # max dis from origin
 scale = 1
 collection_name = "GP_Obj"
-type = "MONKEY" # STROKE or MONKEY
+type = "STROKE" # STROKE or MONKEY
 
 # set scene frame range
 bpy.data.scenes["Scene"].frame_end = frames
@@ -63,10 +63,14 @@ for f in range(frames):
         gp_layer_lines = gp_data.layers["Lines"]
         gp_layer_lines.frames.new(f + 2)
         
-        if type == "STROKE":
+        if type == "STROKE" and use_gpencil_type == "GPENCIL":
             gp_layer_colors = gp_data.layers["Colors"]
             gp_layer_colors.frames.new(f + 2)
             
+        elif type == "STROKE" and use_gpencil_type == "GREASEPENCIL":
+            gp_layer_color = gp_data.layers["Color"]
+            gp_layer_color.frames.new(f + 2)     
+                      
         elif type == "MONKEY":
             gp_layer_fills = gp_data.layers["Fills"]
             gp_layer_fills.frames.new(f + 2)
