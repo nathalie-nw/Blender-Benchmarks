@@ -3,6 +3,7 @@ import bpy
 total_points = 0
 per_object = {}
 total_objects = 0
+total_layers = 0
 
 for obj in bpy.context.scene.objects:
     obj_points = 0
@@ -12,6 +13,7 @@ for obj in bpy.context.scene.objects:
         total_objects += 1
         gp_data = obj.data
         for layer in gp_data.layers:
+            total_layers += 1
             for frame in layer.frames:
                 for stroke in frame.strokes:
                     obj_points += len(stroke.points)
@@ -21,6 +23,7 @@ for obj in bpy.context.scene.objects:
         total_objects += 1
         gp_data = obj.data
         for layer in gp_data.layers:
+            total_layers += 1
             for frame in layer.frames:
                 strokes = frame.drawing.strokes
                 for stroke in strokes:
@@ -34,5 +37,8 @@ for obj in bpy.context.scene.objects:
 
 for name, count in per_object.items():
     print(f"  {name}: {count}")
-print("Total Grease Pencil points:", total_points)
+    
 print("Total Grease Pencil objects:", total_objects)
+print("Total Grease Pencil layers:", total_layers)   
+print("Total Grease Pencil points:", total_points)
+
