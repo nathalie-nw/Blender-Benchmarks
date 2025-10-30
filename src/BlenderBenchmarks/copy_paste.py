@@ -1,10 +1,12 @@
 import bpy
+import time
 
 frames = bpy.data.scenes["Scene"].frame_end
+start_time = time.time()
 
 # frame numbers
 source_frame = 1
-frames_copy = 5
+frames_copy = 100
 frames_to_copy = frames / frames_copy
 target_frame = 1
 
@@ -46,7 +48,11 @@ if use_gpencil_type == "GPENCIL":
 
         # past strokes
         layer = obj.data.layers.active
-        bpy.ops.gpencil.paste()
+        try: 
+            bpy.ops.gpencil.paste()
+        except: print("no paste")
+
+
         bpy.ops.object.mode_set(mode="OBJECT")
 
     bpy.context.area.type = "TEXT_EDITOR"
@@ -60,7 +66,8 @@ elif use_gpencil_type == "GREASEPENCIL":
     # Go to source frame
     bpy.context.scene.frame_set(source_frame)
     bpy.ops.object.mode_set(mode="EDIT")
-
+    bpy.context.area.type = "VIEW_3D"
+    
     # select and copy strokes
     bpy.ops.grease_pencil.select_all()
     bpy.ops.grease_pencil.copy()
@@ -85,5 +92,11 @@ elif use_gpencil_type == "GREASEPENCIL":
         # past strokes
         layer = obj.data.layers.active
         bpy.ops.object.mode_set(mode="EDIT")
-        bpy.ops.grease_pencil.paste()
+
+        try: 
+            bpy.ops.grease_pencil.paste()
+        except: print("no paste")
+        
         bpy.ops.object.mode_set(mode="OBJECT")
+    bpy.context.area.type = "TEXT_EDITOR"
+print(time.time()-start_time)
