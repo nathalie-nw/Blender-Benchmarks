@@ -1,15 +1,15 @@
-import os.path
+from pathlib import Path
 import time
 
 import bpy
 
-start_time = time.time()
 
-bpy.ops.wm.save_mainfile()
+def measure_save_time():
+    start_time = time.time()
 
-print(
-    "\nfile:",
-    os.path.basename(bpy.data.filepath),
-    "\nsave time:",
-    time.time() - start_time,
-)
+    bpy.ops.wm.save_mainfile()
+    return time.time() - start_time
+
+
+save_time = measure_save_time()
+print(f"File: {Path(bpy.data.filepath).name}, save time: {measure_save_time}")

@@ -1,44 +1,38 @@
 import bpy
+from dataclasses import dataclass
 
-total_points = 0
-per_object = {}
-total_objects = 0
-total_layers = 0
-
-for obj in bpy.context.scene.objects:
-    obj_points = 0
-
-    # Blender 4.2.10
-    if obj.type == "GPENCIL":
-        total_objects += 1
-        gp_data = obj.data
-        for layer in gp_data.layers:
-            total_layers += 1
-            for frame in layer.frames:
-                for stroke in frame.strokes:
-                    obj_points += len(stroke.points)
-
-    # Blender 4.5.2
-    elif obj.type == "GREASEPENCIL":
-        total_objects += 1
-        gp_data = obj.data
-        for layer in gp_data.layers:
-            total_layers += 1
-            for frame in layer.frames:
-                strokes = frame.drawing.strokes
-                for stroke in strokes:
-                    obj_points += len(stroke.points)
-
-    # Store counts if object has points
-    if obj_points > 0:
-        per_object[obj.name] = obj_points
-        total_points += obj_points
+@dataclass
+class GP_Contents_Count:
+    objects: int = 0
+    layers: int = 0
+    points: int = 0
 
 
-for name, count in per_object.items():
-    print(f"  {name}: {count}")
-    
-print("Total Grease Pencil objects:", total_objects)
-print("Total Grease Pencil layers:", total_layers)   
-print("Total Grease Pencil points:", total_points)
+def count_gp_contents() -> GP_Contents_Count:
+    object_count = 0
+    layer_count = 0
+    point_count = 0
+
+    bpy.ops.object.mode_set (mode="OBJECT")
+
+    for obj in bpy.context.scene.objects:
+        if obj.type in ("GPENCIL", "GREASEPENCIL"):
+            object_count += 1
+            gp_data = obj.data
+            for layer in gp_data.layers:
+                layer_count += 1
+                for frame in layer.frames:
+                    strokes = frame.strokes if obj.type == "GPENCIL" else frame.drawing.strokes
+                    for stroke in strokes:
+                        point_count += len(stroke.points)
+
+    return GP_Contents_Count(object_count, layer_count, point_count)
+
+
+if __name__ == '__main__':
+
+    gp_content_counts = count_gp_contents()
+    print("Total Grease Pencil objects:", gp_content_counts.objects)
+    print("Total Grease Pencil layers:", gp_content_counts.layers)   
+    print("Total Grease Pencil points:", gp_content_counts.points)
 

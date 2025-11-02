@@ -1,18 +1,21 @@
 import bpy
 import time
 
-start_time = time. time()
 
-use_gpencil_type = "GPENCIL" if bpy.app.version < (4, 5, 0) else "GREASEPENCIL"
+def measure_context_switch_time(gpencil_type: str):
+    bpy.ops.object.mode_set(mode="OBJECT")
+    start_time = time.time()
 
-if bpy.context.object.mode == "OBJECT":
-    if use_gpencil_type == "GPENCIL":
-        bpy.ops.object.mode_set (mode="EDIT_GPENCIL")
-    elif use_gpencil_type == "GREASEPENCIL":
-        bpy.ops.object.mode_set (mode="EDIT")
-        
-    print(f"Time: {time.time()-start_time:.4f} seconds")
+    if gpencil_type == "GPENCIL":
+        bpy.ops.object.mode_set(mode="EDIT_GPENCIL")
+    elif gpencil_type == "GREASEPENCIL":
+        bpy.ops.object.mode_set(mode="EDIT")
 
-else: print("wrong context")
+    return time.time() - start_time
 
 
+if __name__ == "__main__":
+    gpencil_type = "GPENCIL" if bpy.app.version < (4, 5, 0) else "GREASEPENCIL"
+    context_switch_time = measure_context_switch_time(gpencil_type)
+
+    print(f"Time: {context_switch_time:.4f} seconds")
