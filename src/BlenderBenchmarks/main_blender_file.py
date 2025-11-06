@@ -1,4 +1,5 @@
 import datetime
+import functools
 import json
 import logging
 import os
@@ -102,6 +103,8 @@ def start_cpu_gpu_monitoring(
 def stop_cpu_gpu_monitoring(*args: MonitoringBase):
     for arg in args:
         arg.stop()
+
+
 def create_context():
     for window in bpy.context.window_manager.windows:
         screen = window.screen
@@ -112,7 +115,7 @@ def create_context():
                 (region for region in area.regions if region.type == "WINDOW"), None
             )
             if region is not None:
-                print(region.type)
+                # print(region.type)
                 break
 
     context_override = bpy.context.copy()
@@ -123,6 +126,7 @@ def create_context():
     context_override["region"] = region
     return context_override
 
+
 def measure_context_switch_time():
     if bpy.context.mode not in "OBJECT":
         bpy.ops.object.mode_set(mode="OBJECT")
@@ -130,23 +134,19 @@ def measure_context_switch_time():
     obj = bpy.data.objects["GP_Obj_1"]
     obj.select_set(True)
 
-    # TODO: nothing, just remember
     context_override = create_context()
     with bpy.context.temp_override(**context_override):
-        print(bpy.context.area, bpy.context.region)
+        # print(bpy.context.area, bpy.context.region)
 
         start_time = time.time()
 
         if bpy.app.version < (4, 3, 0):
             bpy.ops.object.mode_set(mode="EDIT_GPENCIL")
-            print("WORKS")
         else:
             bpy.ops.object.mode_set(mode="EDIT")
+    print("measure_context_switch_time DONE")
 
     return time.time() - start_time
-
-
-# use_gpencil_type = "GPENCIL" if bpy.app.version < (4, 5, 0) else "GREASEPENCIL"
 
 
 def set_noise_modifier(obj, modifier_type: str, noise_scale: int):
@@ -158,36 +158,81 @@ def measure_modifier_apply_time(
     apply_to_all: bool = False, noise_scale: int = 1
 ) -> float:
     # measure modifier apply time
-    start_time = time.time()
+    context_override = create_context()
+    with bpy.context.temp_override(**context_override):
+        # print(bpy.context.area, bpy.context.region)
+        if bpy.context.mode != "OBJECT":
+            bpy.ops.object.mode_set(mode="OBJECT")
+        start_time = time.time()
 
-    active_obj = bpy.context.active_object
-    if active_obj.type not in ("GPENCIL", "GREASEPENCIL"):
-        raise TypeError(
-            f"object has to be 'GPENCIL' or 'GREASEPENCIL', not {active_obj.type}"
-        )
+        active_obj = bpy.context.active_object
+        if active_obj.type not in ("GPENCIL", "GREASEPENCIL"):
+            raise TypeError(
+                f"object has to be 'GPENCIL' or 'GREASEPENCIL', not {active_obj.type}"
+            )
 
-    if active_obj.type == "GPENCIL":
-        modifier_type = "GP_NOISE"
-    elif active_obj.type == "GREASEPENCIL":
-        modifier_type = "GREASE_PENCIL_NOISE"
+        if active_obj.type == "GPENCIL":
+            modifier_type = "GP_NOISE"
+        elif active_obj.type == "GREASEPENCIL":
+            modifier_type = "GREASE_PENCIL_NOISE"
 
-    if apply_to_all:
-        for obj in bpy.data.objects:
-            if obj.type in ("GPENCIL", "GREASEPENCIL"):
-                set_noise_modifier(obj, modifier_type, noise_scale)
-    else:
-        set_noise_modifier(active_obj, modifier_type, noise_scale)
-    return time.time() - start_time
+        if apply_to_all:
+            for obj in bpy.data.objects:
+                if obj.type in ("GPENCIL", "GREASEPENCIL"):
+                    set_noise_modifier(obj, modifier_type, noise_scale)
+                    bpy.ops.object.gpencil_modifier_apply(modifier="Noise")
+
+        else:
+            set_noise_modifier(active_obj, modifier_type, noise_scale)
+            bpy.ops.object.gpencil_modifier_apply(modifier="Noise")
+
+        bpy.ops.object.gpencil_modifier_apply(modifier="NOISE")
+        print("measure_modifier_apply_time DONE")
+        return time.time() - start_time
 
 
 def measure_fx_apply_time(apply_to_all: bool = False):
-    start_time = time.time()
-    if apply_to_all:
-        for obj in bpy.data.objects:
+    context_override = create_context()
+    with bpy.context.temp_override(**context_override):
+        # print(bpy.context.area, bpy.context.region)
+        if bpy.app.version < (4, 3, 0):
+            bpy.ops.object.mode_set(mode="EDIT_GPENCIL")
+        else:
+            bpy.ops.object.mode_set(mode="EDIT")
+
+        if bpy.context.mode != "OBJECT":
+            bpy.ops.object.mode_set(mode="OBJECT")
+
+        active_obj = bpy.context.active_object
+        if active_obj.type not in ("GPENCIL", "GREASEPENCIL"):
+            raise TypeError(
+                f"object has to be 'GPENCIL' or 'GREASEPENCIL', not {active_obj.type}"
+            )
+
+        start_time = time.time()
+        if apply_to_all:
+            for obj in bpy.data.objects:
+                obj.shader_effects.new(name="BLUR", type="FX_BLUR")
+        else:
+            obj = bpy.context.active_object
             obj.shader_effects.new(name="BLUR", type="FX_BLUR")
-    else:
-        obj = bpy.context.active_object
-        obj.shader_effects.new(name="BLUR", type="FX_BLUR")
+
+        bpy.ops.object.modifier_apply(modifier="BLUR")
+        print("measure_fx_apply_time DONE")
+        return time.time() - start_time
+
+
+def measure_undo_time() -> float:
+    start_time = time.time()
+    if bpy.context.mode not in {"PAINT_GREASE_PENCIL", "PAINT_GPENCIL"}:
+        if bpy.app.version < (4, 3, 0):
+            bpy.ops.object.mode_set(mode="PAINT_GPENCIL")
+        else:
+            bpy.ops.object.mode_set(mode="PAINT_GREASE_PENCIL")
+    bpy.ops.ed.undo()
+
+    print("measure_undo_time DONE")
+
     return time.time() - start_time
 
 
@@ -195,37 +240,48 @@ def measure_save_time(filepath: str):
     start_time = time.time()
 
     bpy.ops.wm.save_as_mainfile(filepath=str(filepath))
+    print("measure_save_time DONE")
     return time.time() - start_time
 
 
 def measure_load_time(filepath: str) -> float:
     start_time = time.time()
     bpy.ops.wm.open_mainfile(filepath=str(filepath))
+    print("measure_load_time DONE")
     return time.time() - start_time
 
 
-def play_framerange():
-    scene = bpy.context.scene
-    scene.frame_current = 1
+# TODO: measure time it takes to play the whole timelone
+def play_framerange() -> float:
+    context_override = create_context()
+    with bpy.context.temp_override(**context_override):
+        # print(bpy.context.area, bpy.context.region)
 
-    end_frame = scene.frame_end
+        scene = bpy.context.scene
+        scene.frame_current = 1
 
-    if bpy.context.mode != "OBJECT":
-        bpy.ops.object.mode_set(mode="OBJECT")
+        end_frame = scene.frame_end
 
-    def stop_playback(scene):
-        if scene.frame_current >= end_frame:
-            bpy.ops.screen.animation_cancel(restore_frame=False)
-            bpy.app.handlers.frame_change_post.remove(stop_playback)
+        # stop_data = {"stoptime": None}
 
-    # Remove old handlers to avoid duplicates
-    for handler in bpy.app.handlers.frame_change_post:
-        if handler.__name__ == "stop_playback":
-            bpy.app.handlers.frame_change_post.remove(handler)
+        def stop_playback(scene):
+            if scene.frame_current >= end_frame:
+                bpy.ops.screen.animation_cancel(restore_frame=False)
+                bpy.app.handlers.frame_change_post.remove(stop_playback)
+                print("play_framerange DONE")
+                # stop_data["stoptime"] = time.time()
 
-    bpy.app.handlers.frame_change_post.append(stop_playback)
+        # Remove old handlers to avoid duplicates
+        for handler in bpy.app.handlers.frame_change_post:
+            if handler.__name__ == "stop_playback":
+                bpy.app.handlers.frame_change_post.remove(handler)
 
-    bpy.ops.screen.animation_play()
+        bpy.app.handlers.frame_change_post.append(stop_playback)
+
+        bpy.ops.screen.animation_play()
+        # start_time = time.time()
+
+        # return stop_data["stoptime"] - start_time
 
 
 def read_filesize(filepath: str) -> int:
@@ -309,8 +365,10 @@ def test_play_framerange(result_dir: Path, monitoring_interval: int = 100):
     cpu_monitor, gpu_monitor = start_cpu_gpu_monitoring(
         result_dir_for_test, monitoring_interval
     )
-    play_framerange()
+    play_time = play_framerange()
     stop_cpu_gpu_monitoring(cpu_monitor, gpu_monitor)
+    with open(result_dir_for_test / "play_time.txt", "w") as f:
+        f.write(str(play_time))
 
 
 def test_fx_apply_time(
@@ -327,6 +385,19 @@ def test_fx_apply_time(
 
     with open(result_dir_for_test / "fx_apply_time.txt", "w") as f:
         f.write(str(fx_apply_time))
+
+
+def test_undo_time(result_dir, monitoring_interval: int = 100):
+    result_dir_for_test = create_test_dir(result_dir, "test_undo_time")
+    cpu_monitor, gpu_monitor = start_cpu_gpu_monitoring(
+        result_dir_for_test, monitoring_interval
+    )
+
+    undo_time = measure_undo_time()
+    stop_cpu_gpu_monitoring(cpu_monitor, gpu_monitor)
+
+    with open(result_dir_for_test / "undo_time.txt", "w") as f:
+        f.write(str(undo_time))
 
 
 def test_modifier_timing(
@@ -358,7 +429,7 @@ def test_context_switch_time(result_dir, monitoring_interval: int = 100):
 
 
 def test_measure_save_time(result_dir, monitoring_interval: int = 100):
-    result_dir_for_test = create_test_dir(result_dir, "test_measure_save_time")
+    result_dir_for_test = create_test_dir(result_dir, "test_save_time")
     cpu_monitor, gpu_monitor = start_cpu_gpu_monitoring(
         result_dir_for_test, monitoring_interval
     )
@@ -376,32 +447,48 @@ def start_measuring(test_file: Path, output_dir: Path):
     result_dir: Path = output_dir / test_start_time.strftime("%Y-%m-%d_%H%M%S")
     result_dir.mkdir(parents=True)
 
+    # TODO_ check how opening file time is calculated, seems off with bigger files
     logger.debug("Opening File")
     test_file_opening(result_dir, test_file)
     logger.debug("Write Metadata of current Test")
     write_metadata(test_file, test_start_time, result_dir / "metadata.json")
 
+    # TODO: add delay or smth so that everything starts once the measurement before has ended
     logger.debug("Starting Test 'test_measure_save_time'")
-    test_measure_save_time(result_dir)
-    # TODO FIX test_play_framerange
-    # RuntimeError: Operator bpy.ops.screen.animation_play.poll() failed, context is incorrect
-    # logger.debug("Starting Test 'test_play_framerange'")
-    # test_play_framerange(result_dir)
+    bpy.app.timers.register(
+        functools.partial(test_measure_save_time, result_dir), first_interval=10
+    )
+    #test_measure_save_time(result_dir)
 
-    # TODO FIX test_fx_apply_time
-    # AttributeError: 'Context' object has no attribute 'active_object'
-    # logger.debug("Starting Test 'test_fx_apply_time'")
-    # test_fx_apply_time(result_dir)
-
-    # TODO FIX test_modigier_timing
-    # AttributeError: 'Context' object has no attribute 'active_object'
-    # logger.debug("Starting Test 'test_modifier_timing'")
-    # test_modifier_timing(result_dir)
-
+    logger.debug("Starting Test 'test_play_framerange'")
+    bpy.app.timers.register(
+        functools.partial(test_play_framerange, result_dir), first_interval=10
+    )
+    #test_play_framerange(result_dir)
 
     logger.debug("Starting Test 'test_context_switch_time'")
-    test_context_switch_time(result_dir)
+    bpy.app.timers.register(
+        functools.partial(test_context_switch_time, result_dir), first_interval=10
+    )
+    # test_context_switch_time(result_dir)
 
+    logger.debug("Starting Test 'test_undo_time'")
+    bpy.app.timers.register(
+        functools.partial(test_undo_time, result_dir), first_interval=10
+    )
+    # test_context_switch_time(result_dir)
+
+    logger.debug("Starting Test 'test_fx_apply_time'")
+    bpy.app.timers.register(
+        functools.partial(test_fx_apply_time, result_dir), first_interval=20
+    )
+    # test_fx_apply_time(result_dir)
+
+    logger.debug("Starting Test 'test_modifier_timing'")
+    bpy.app.timers.register(
+        functools.partial(test_modifier_timing, result_dir), first_interval=30
+    )
+    # test_modifier_timing(result_dir)
 
 
 if __name__ == "__main__":
