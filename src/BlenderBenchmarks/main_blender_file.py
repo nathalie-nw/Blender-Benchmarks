@@ -1,6 +1,6 @@
-import csv
 import datetime
 import json
+import logging
 import os
 import subprocess
 import time
@@ -8,16 +8,17 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import bpy
-import logging
-import sys
 
 logger = logging.getLogger()
-logging.basicConfig(filename=r"C:\Users\work\Documents\HdM\Bachelor\files\my-results\log.log", encoding="utf-8", level=logging.DEBUG)
+logging.basicConfig(
+    filename=r"C:\Users\work\Documents\HdM\Bachelor\files\my-results\log.log",
+    encoding="utf-8",
+    level=logging.DEBUG,
+)
 logger.setLevel(logging.DEBUG)
 
 
 class MonitoringBase:
-
     def __init__(self, logfile_path, delay):
         self.process = None
         self.logfile = None
@@ -46,7 +47,6 @@ class MonitoringBase:
         if self.logfile is not None:
             self.logfile.close()
 
-    
     @property
     def command_args(self):
         raise NotImplementedError()
@@ -56,12 +56,19 @@ class MonitoringBase:
 
 
 class CPUMonitoring(MonitoringBase):
+    # TODO: format
     PATH_TO_SCRIPT = r"C:\Users\work\Documents\HdM\Bachelor\code\Blender-Benchmarks\scripts\cpu_monitoring.py"
-    
+
     @property
     def command_args(self):
-        return ["py.exe", self.PATH_TO_SCRIPT, "--loop-ms", str(self.delay), str(self.logfile_path)]
-    
+        return [
+            "py.exe",
+            self.PATH_TO_SCRIPT,
+            "--loop-ms",
+            str(self.delay),
+            str(self.logfile_path),
+        ]
+
     def start(self):
         if not Path(self.PATH_TO_SCRIPT).exists():
             raise RuntimeError("Couldn't find Monitoring Script")
@@ -80,8 +87,6 @@ class GPUMonitoring(MonitoringBase):
         return ["nvidia-smi", self.query, "--format=csv", f"--loop-ms={self.delay}"]
 
 
-
-
 def start_cpu_gpu_monitoring(
     result_dir: Path, delay: int
 ) -> tuple[MonitoringBase, MonitoringBase]:
@@ -97,18 +102,46 @@ def start_cpu_gpu_monitoring(
 def stop_cpu_gpu_monitoring(*args: MonitoringBase):
     for arg in args:
         arg.stop()
+def create_context():
+    for window in bpy.context.window_manager.windows:
+        screen = window.screen
 
+    for screen in bpy.data.screens:
+        for area in (a for a in screen.areas if a.type == "VIEW_3D"):
+            region = next(
+                (region for region in area.regions if region.type == "WINDOW"), None
+            )
+            if region is not None:
+                print(region.type)
+                break
+
+    context_override = bpy.context.copy()
+    context_override["selected_objects"] = list(bpy.context.scene.objects)[0]
+    context_override["area"] = area
+    context_override["screen"] = screen
+    context_override["window"] = window
+    context_override["region"] = region
+    return context_override
 
 def measure_context_switch_time():
+    if bpy.context.mode not in "OBJECT":
+        bpy.ops.object.mode_set(mode="OBJECT")
 
-    if bpy.context.mode != 'OBJECT':
-        bpy.ops.object.mode_set(mode='OBJECT')
-        
-    start_time = time.time()
-    if bpy.app.version < (4, 3, 0):
-        bpy.ops.object.mode_set(mode="EDIT_GPENCIL")
-    else:
-        bpy.ops.object.mode_set(mode="EDIT")
+    obj = bpy.data.objects["GP_Obj_1"]
+    obj.select_set(True)
+
+    # TODO: nothing, just remember
+    context_override = create_context()
+    with bpy.context.temp_override(**context_override):
+        print(bpy.context.area, bpy.context.region)
+
+        start_time = time.time()
+
+        if bpy.app.version < (4, 3, 0):
+            bpy.ops.object.mode_set(mode="EDIT_GPENCIL")
+            print("WORKS")
+        else:
+            bpy.ops.object.mode_set(mode="EDIT")
 
     return time.time() - start_time
 
@@ -174,11 +207,11 @@ def measure_load_time(filepath: str) -> float:
 def play_framerange():
     scene = bpy.context.scene
     scene.frame_current = 1
-    
+
     end_frame = scene.frame_end
 
-    if bpy.context.mode != 'OBJECT':
-        bpy.ops.object.mode_set(mode='OBJECT')
+    if bpy.context.mode != "OBJECT":
+        bpy.ops.object.mode_set(mode="OBJECT")
 
     def stop_playback(scene):
         if scene.frame_current >= end_frame:
@@ -211,8 +244,8 @@ def count_gp_contents() -> GP_Contents_Count:
     layer_count = 0
     point_count = 0
 
-    if bpy.context.mode != 'OBJECT':
-        bpy.ops.object.mode_set(mode='OBJECT')
+    if bpy.context.mode != "OBJECT":
+        bpy.ops.object.mode_set(mode="OBJECT")
 
     for obj in bpy.context.scene.objects:
         if obj.type in ("GPENCIL", "GREASEPENCIL"):
@@ -255,10 +288,14 @@ def create_test_dir(parent, folder_name):
     return new_dir
 
 
-def test_file_opening(result_dir: Path, file_to_open: str, monitoring_interval: int=100):
+def test_file_opening(
+    result_dir: Path, file_to_open: str, monitoring_interval: int = 100
+):
     result_dir_for_test = create_test_dir(result_dir, "test_file_opening")
 
-    cpu_monitor, gpu_monitor = start_cpu_gpu_monitoring(result_dir_for_test, monitoring_interval)
+    cpu_monitor, gpu_monitor = start_cpu_gpu_monitoring(
+        result_dir_for_test, monitoring_interval
+    )
     load_time = measure_load_time(file_to_open)
     stop_cpu_gpu_monitoring(cpu_monitor, gpu_monitor)
 
@@ -266,17 +303,23 @@ def test_file_opening(result_dir: Path, file_to_open: str, monitoring_interval: 
         f.write(str(load_time))
 
 
-def test_play_framerange(result_dir: Path, monitoring_interval: int=100):
+def test_play_framerange(result_dir: Path, monitoring_interval: int = 100):
     result_dir_for_test = create_test_dir(result_dir, "test_play_framerange")
 
-    cpu_monitor, gpu_monitor = start_cpu_gpu_monitoring(result_dir_for_test, monitoring_interval)
+    cpu_monitor, gpu_monitor = start_cpu_gpu_monitoring(
+        result_dir_for_test, monitoring_interval
+    )
     play_framerange()
     stop_cpu_gpu_monitoring(cpu_monitor, gpu_monitor)
 
 
-def test_fx_apply_time(result_dir: Path, apply_to_all: bool = False, monitoring_interval: int=100):
+def test_fx_apply_time(
+    result_dir: Path, apply_to_all: bool = False, monitoring_interval: int = 100
+):
     result_dir_for_test = create_test_dir(result_dir, "test_fx_apply_time")
-    cpu_monitor, gpu_monitor = start_cpu_gpu_monitoring(result_dir_for_test, monitoring_interval)
+    cpu_monitor, gpu_monitor = start_cpu_gpu_monitoring(
+        result_dir_for_test, monitoring_interval
+    )
 
     fx_apply_time = measure_fx_apply_time(apply_to_all)
 
@@ -286,9 +329,13 @@ def test_fx_apply_time(result_dir: Path, apply_to_all: bool = False, monitoring_
         f.write(str(fx_apply_time))
 
 
-def test_modifier_timing(result_dir: Path, apply_to_all: bool = False, monitoring_interval: int=100):
+def test_modifier_timing(
+    result_dir: Path, apply_to_all: bool = False, monitoring_interval: int = 100
+):
     result_dir_for_test = create_test_dir(result_dir, "test_modifier_timing")
-    cpu_monitor, gpu_monitor = start_cpu_gpu_monitoring(result_dir_for_test, monitoring_interval)
+    cpu_monitor, gpu_monitor = start_cpu_gpu_monitoring(
+        result_dir_for_test, monitoring_interval
+    )
 
     modifier_apply_time = measure_modifier_apply_time(apply_to_all)
     stop_cpu_gpu_monitoring(cpu_monitor, gpu_monitor)
@@ -297,19 +344,24 @@ def test_modifier_timing(result_dir: Path, apply_to_all: bool = False, monitorin
         f.write(str(modifier_apply_time))
 
 
-def test_context_switch_time(result_dir, monitoring_interval: int=100):
+def test_context_switch_time(result_dir, monitoring_interval: int = 100):
     result_dir_for_test = create_test_dir(result_dir, "test_context_switch_time")
-    cpu_monitor, gpu_monitor = start_cpu_gpu_monitoring(result_dir_for_test, monitoring_interval)
+    cpu_monitor, gpu_monitor = start_cpu_gpu_monitoring(
+        result_dir_for_test, monitoring_interval
+    )
 
-    modifier_apply_time = measure_context_switch_time()
+    context_switch_time = measure_context_switch_time()
     stop_cpu_gpu_monitoring(cpu_monitor, gpu_monitor)
 
     with open(result_dir_for_test / "context_switch_time.txt", "w") as f:
-        f.write(str(modifier_apply_time))
+        f.write(str(context_switch_time))
 
-def test_measure_save_time(result_dir, monitoring_interval: int=100):
+
+def test_measure_save_time(result_dir, monitoring_interval: int = 100):
     result_dir_for_test = create_test_dir(result_dir, "test_measure_save_time")
-    cpu_monitor, gpu_monitor = start_cpu_gpu_monitoring(result_dir_for_test, monitoring_interval)
+    cpu_monitor, gpu_monitor = start_cpu_gpu_monitoring(
+        result_dir_for_test, monitoring_interval
+    )
 
     save_time = measure_save_time(result_dir_for_test / "measured_save_file.blend")
     stop_cpu_gpu_monitoring(cpu_monitor, gpu_monitor)
@@ -329,30 +381,32 @@ def start_measuring(test_file: Path, output_dir: Path):
     logger.debug("Write Metadata of current Test")
     write_metadata(test_file, test_start_time, result_dir / "metadata.json")
 
+    logger.debug("Starting Test 'test_measure_save_time'")
+    test_measure_save_time(result_dir)
     # TODO FIX test_play_framerange
     # RuntimeError: Operator bpy.ops.screen.animation_play.poll() failed, context is incorrect
     # logger.debug("Starting Test 'test_play_framerange'")
     # test_play_framerange(result_dir)
 
-    # TODO FIX 
+    # TODO FIX test_fx_apply_time
     # AttributeError: 'Context' object has no attribute 'active_object'
     # logger.debug("Starting Test 'test_fx_apply_time'")
     # test_fx_apply_time(result_dir)
 
-    # TODO FIX 
+    # TODO FIX test_modigier_timing
     # AttributeError: 'Context' object has no attribute 'active_object'
     # logger.debug("Starting Test 'test_modifier_timing'")
     # test_modifier_timing(result_dir)
 
-    # TODO FIX
-    # RuntimeError: Operator bpy.ops.object.mode_set.poll() Context missing active object
-    # logger.debug("Starting Test 'test_context_switch_time'")
-    # test_context_switch_time(result_dir)
 
-    logger.debug("Starting Test 'test_measure_save_time'")
-    test_measure_save_time(result_dir)
+    logger.debug("Starting Test 'test_context_switch_time'")
+    test_context_switch_time(result_dir)
 
-if __name__ == '__main__':
+
+
+if __name__ == "__main__":
     OUTPUT_DIR = Path(r"C:\Users\work\Documents\HdM\Bachelor\files\my-results")
-    TEST_FILE = Path(r"C:\Users\work\Documents\HdM\Bachelor\files\my-test\test-05\test-05-01\test-05-01-01\test-05-01-01-01\4.2.13\test-05-01-01-01_4.2.13 LTS.blend")
+    TEST_FILE = Path(
+        r"C:\Users\work\Documents\HdM\Bachelor\files\my-test\test-05\test-05-01\test-05-01-01\test-05-01-01-01\4.2.13\test-05-01-01-01_4.2.13 LTS.blend"
+    )
     start_measuring(TEST_FILE, OUTPUT_DIR)
