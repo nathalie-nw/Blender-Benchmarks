@@ -100,7 +100,10 @@ def stop_cpu_gpu_monitoring(*args: MonitoringBase):
 
 
 def measure_context_switch_time():
-    bpy.ops.object.mode_set(mode="OBJECT")
+
+    if bpy.context.mode != 'OBJECT':
+        bpy.ops.object.mode_set(mode='OBJECT')
+        
     start_time = time.time()
     if bpy.app.version < (4, 3, 0):
         bpy.ops.object.mode_set(mode="EDIT_GPENCIL")
@@ -171,7 +174,11 @@ def measure_load_time(filepath: str) -> float:
 def play_framerange():
     scene = bpy.context.scene
     scene.frame_current = 1
+    
     end_frame = scene.frame_end
+
+    if bpy.context.mode != 'OBJECT':
+        bpy.ops.object.mode_set(mode='OBJECT')
 
     def stop_playback(scene):
         if scene.frame_current >= end_frame:
@@ -204,7 +211,8 @@ def count_gp_contents() -> GP_Contents_Count:
     layer_count = 0
     point_count = 0
 
-    bpy.ops.object.mode_set(mode="OBJECT")
+    if bpy.context.mode != 'OBJECT':
+        bpy.ops.object.mode_set(mode='OBJECT')
 
     for obj in bpy.context.scene.objects:
         if obj.type in ("GPENCIL", "GREASEPENCIL"):
@@ -227,17 +235,15 @@ def count_gp_contents() -> GP_Contents_Count:
 def write_metadata(
     test_file_path: Path, test_start_time: datetime.datetime, output_filepath: Path
 ):
-    #TODO: FIX count_gp_contents
-    # RuntimeError: Operator bpy.ops.object.mode_set.poll() Context missing active object
-    # gp_contents_counts = count_gp_contents()
+    gp_contents_counts = count_gp_contents()
     meta_data = dict()
     meta_data["version"] = bpy.app.version_string
     meta_data["test file path"] = str(test_file_path)
     meta_data["timestamp"] = test_start_time.isoformat()
     meta_data["file size"] = read_filesize(test_file_path)
-    #meta_data["gp objects"] = gp_contents_counts.objects
-    #meta_data["gp layers"] = gp_contents_counts.layers
-    #meta_data["gp points"] = gp_contents_counts.points
+    meta_data["gp objects"] = gp_contents_counts.objects
+    meta_data["gp layers"] = gp_contents_counts.layers
+    meta_data["gp points"] = gp_contents_counts.points
     meta_data["framerange"] = bpy.data.scenes["Scene"].frame_end
     with open(output_filepath, "w") as f:
         json.dump(meta_data, f, indent=4)
@@ -322,7 +328,7 @@ def start_measuring(test_file: Path, output_dir: Path):
     test_file_opening(result_dir, test_file)
     logger.debug("Write Metadata of current Test")
     write_metadata(test_file, test_start_time, result_dir / "metadata.json")
-    
+
     # TODO FIX test_play_framerange
     # RuntimeError: Operator bpy.ops.screen.animation_play.poll() failed, context is incorrect
     # logger.debug("Starting Test 'test_play_framerange'")
@@ -339,9 +345,10 @@ def start_measuring(test_file: Path, output_dir: Path):
     # test_modifier_timing(result_dir)
 
     # TODO FIX
-    #RuntimeError: Operator bpy.ops.object.mode_set.poll() Context missing active object
+    # RuntimeError: Operator bpy.ops.object.mode_set.poll() Context missing active object
     # logger.debug("Starting Test 'test_context_switch_time'")
     # test_context_switch_time(result_dir)
+
     logger.debug("Starting Test 'test_measure_save_time'")
     test_measure_save_time(result_dir)
 
