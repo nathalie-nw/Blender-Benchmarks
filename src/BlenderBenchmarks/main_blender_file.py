@@ -106,23 +106,24 @@ def stop_cpu_gpu_monitoring(*args: MonitoringBase):
 
 
 def create_context():
-    for window in bpy.context.window_manager.windows:
-        screen = window.screen
+    # for window in bpy.context.window_manager.windows:
+    #    screen = window.screen
 
-    for screen in bpy.data.screens:
-        for area in (a for a in screen.areas if a.type == "VIEW_3D"):
-            region = next(
-                (region for region in area.regions if region.type == "WINDOW"), None
-            )
-            if region is not None:
+    # for screen in bpy.data.screens:
+    screen = bpy.context.screen
+    for area in (a for a in screen.areas if a.type == "VIEW_3D"):
+        region = next(
+            (region for region in area.regions if region.type == "WINDOW"), None
+        )
+        if region is not None:
                 # print(region.type)
-                break
+            break
 
     context_override = bpy.context.copy()
     context_override["selected_objects"] = list(bpy.context.scene.objects)[0]
     context_override["area"] = area
-    context_override["screen"] = screen
-    context_override["window"] = window
+    # context_override["screen"] = screen
+    # context_override["window"] = window
     context_override["region"] = region
     return context_override
 
@@ -447,7 +448,7 @@ def start_measuring(test_file: Path, output_dir: Path):
     result_dir: Path = output_dir / test_start_time.strftime("%Y-%m-%d_%H%M%S")
     result_dir.mkdir(parents=True)
 
-    # TODO_ check how opening file time is calculated, seems off with bigger files
+    # TODO: check how opening file time is calculated, seems off with bigger files
     logger.debug("Opening File")
     test_file_opening(result_dir, test_file)
     logger.debug("Write Metadata of current Test")
@@ -490,6 +491,7 @@ def start_measuring(test_file: Path, output_dir: Path):
     )
     # test_modifier_timing(result_dir)
 
+    # TODO: print(.... DONE) shows up before test is done. fix
 
 if __name__ == "__main__":
     OUTPUT_DIR = Path(r"C:\Users\work\Documents\HdM\Bachelor\files\my-results")
