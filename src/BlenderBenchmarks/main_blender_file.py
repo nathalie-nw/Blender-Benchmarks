@@ -7,12 +7,13 @@ import subprocess
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable
 
 import bpy
 
 logger = logging.getLogger()
 logging.basicConfig(
-    filename=r"C:\Users\work\Documents\HdM\Bachelor\files\my-results\log.log",
+    filename=r"C:\Users\awink\Desktop\Blender-Benchmarks\log.log",
     encoding="utf-8",
     level=logging.DEBUG,
 )
@@ -58,7 +59,7 @@ class MonitoringBase:
 
 class CPUMonitoring(MonitoringBase):
     # TODO: format
-    PATH_TO_SCRIPT = r"C:\Users\work\Documents\HdM\Bachelor\code\Blender-Benchmarks\scripts\cpu_monitoring.py"
+    PATH_TO_SCRIPT = r"C:\Users\awink\Desktop\Blender-Benchmarks\scripts\cpu_monitor.py"
 
     @property
     def command_args(self):
@@ -106,24 +107,20 @@ def stop_cpu_gpu_monitoring(*args: MonitoringBase):
 
 
 def create_context():
-    # for window in bpy.context.window_manager.windows:
-    #    screen = window.screen
-
-    # for screen in bpy.data.screens:
     screen = bpy.context.screen
+    if screen is None:
+        screen = bpy.context.window_manager.windows[-1].screen
+
     for area in (a for a in screen.areas if a.type == "VIEW_3D"):
         region = next(
             (region for region in area.regions if region.type == "WINDOW"), None
         )
         if region is not None:
-                # print(region.type)
             break
 
     context_override = bpy.context.copy()
     context_override["selected_objects"] = list(bpy.context.scene.objects)[0]
     context_override["area"] = area
-    # context_override["screen"] = screen
-    # context_override["window"] = window
     context_override["region"] = region
     return context_override
 
@@ -155,55 +152,89 @@ def set_noise_modifier(obj, modifier_type: str, noise_scale: int):
     mod.noise_scale = noise_scale
 
 
-def measure_modifier_apply_time(
-    apply_to_all: bool = False, noise_scale: int = 1
-) -> float:
-    # measure modifier apply time
+class MeasurePlayFramerange:
+    def __init__(self, result_dir: Path, monitoring_interval: int = 100, **kwargs):
+        self.end_frame = None
+        self.start_time = None
+        self.result_dir = result_dir
+        self.result_dir.mkdir(exist_ok=True)
+        self.context = create_context()
+        self.monitoring_interval = monitoring_interval
+        self.gpu_monitor = None
+        self.cpu_monitor = None
+        self._running = False
+
+    @property
+    def running(self):
+        return self._running
+
+    def start_cpu_gpu_monitoring(self):
+        self.cpu_monitor, self.gpu_monitor = start_cpu_gpu_monitoring(
+            self.result_dir, self.monitoring_interval
+        )
+
+    def setup(self):
+        for handler in bpy.app.handlers.frame_change_post:
+            if handler.__name__ == "stop_playback":
+                bpy.app.handlers.frame_change_post.remove(handler)
+        bpy.app.handlers.frame_change_post.append(self.stop_playback)
+
+    def start(self):
+        self.setup()
+        self._running = True
+        with bpy.context.temp_override(**self.context_override):
+            scene = bpy.context.scene
+            scene.frame_current = 1
+            self.end_frame = scene.frame_end
+            self.start_time = time.time()
+            bpy.ops.screen.animation_play()
+
+    def stop_playback(self, scene):
+        if scene.frame_current >= self.end_frame:
+            measured_time = time.time() - self.start_time
+            self.write_timing_result(measured_time, "play_time.txt")
+            bpy.ops.screen.animation_cancel(restore_frame=False)
+            bpy.app.handlers.frame_change_post.remove(self.stop_playback)
+            self.cpu_monitor.stop()
+            self.gpu_monitor.stop()
+
+    def write_timing_result(self, result: float, filename: str):
+        with open(self.result_dir / filename, "w") as f:
+            f.write(str(result))
+
+
+def measure_modifier_apply_time(noise_scale: int = 1) -> float:
     context_override = create_context()
+    context_override["mode"] = "OBJECT"
+    noise_scale = noise_scale
     with bpy.context.temp_override(**context_override):
-        # print(bpy.context.area, bpy.context.region)
-        if bpy.context.mode != "OBJECT":
-            bpy.ops.object.mode_set(mode="OBJECT")
         start_time = time.time()
-
+        # TODO: try to select correct active object instead
         active_obj = bpy.context.active_object
-        if active_obj.type not in ("GPENCIL", "GREASEPENCIL"):
-            raise TypeError(
-                f"object has to be 'GPENCIL' or 'GREASEPENCIL', not {active_obj.type}"
-            )
-
         if active_obj.type == "GPENCIL":
             modifier_type = "GP_NOISE"
         elif active_obj.type == "GREASEPENCIL":
             modifier_type = "GREASE_PENCIL_NOISE"
-
-        if apply_to_all:
-            for obj in bpy.data.objects:
-                if obj.type in ("GPENCIL", "GREASEPENCIL"):
-                    set_noise_modifier(obj, modifier_type, noise_scale)
-                    bpy.ops.object.gpencil_modifier_apply(modifier="Noise")
-
         else:
-            set_noise_modifier(active_obj, modifier_type, noise_scale)
-            bpy.ops.object.gpencil_modifier_apply(modifier="Noise")
+            raise TypeError(
+                f"object has to be 'GPENCIL' or 'GREASEPENCIL', not {active_obj.type}"
+            )
 
+        set_noise_modifier(active_obj, modifier_type, noise_scale)
         bpy.ops.object.gpencil_modifier_apply(modifier="NOISE")
-        print("measure_modifier_apply_time DONE")
+
         return time.time() - start_time
 
 
-def measure_fx_apply_time(apply_to_all: bool = False):
+def measure_fx_apply_time() -> float:
+    if bpy.app.version < (4, 3, 0):
+        bpy.ops.object.mode_set(mode="EDIT_GPENCIL")
+    else:
+        bpy.ops.object.mode_set(mode="EDIT")
+
     context_override = create_context()
+    context_override["mode"] = "OBJECT"
     with bpy.context.temp_override(**context_override):
-        # print(bpy.context.area, bpy.context.region)
-        if bpy.app.version < (4, 3, 0):
-            bpy.ops.object.mode_set(mode="EDIT_GPENCIL")
-        else:
-            bpy.ops.object.mode_set(mode="EDIT")
-
-        if bpy.context.mode != "OBJECT":
-            bpy.ops.object.mode_set(mode="OBJECT")
-
         active_obj = bpy.context.active_object
         if active_obj.type not in ("GPENCIL", "GREASEPENCIL"):
             raise TypeError(
@@ -211,37 +242,30 @@ def measure_fx_apply_time(apply_to_all: bool = False):
             )
 
         start_time = time.time()
-        if apply_to_all:
-            for obj in bpy.data.objects:
-                obj.shader_effects.new(name="BLUR", type="FX_BLUR")
-        else:
-            obj = bpy.context.active_object
-            obj.shader_effects.new(name="BLUR", type="FX_BLUR")
 
+        obj = bpy.context.active_object
+        obj.shader_effects.new(name="BLUR", type="FX_BLUR")
         bpy.ops.object.modifier_apply(modifier="BLUR")
-        print("measure_fx_apply_time DONE")
+
         return time.time() - start_time
 
 
 def measure_undo_time() -> float:
+    context_override = create_context()
+    if bpy.app.version < (4, 3, 0):
+        context_override["mode"] = "PAINT_GPENCIL"
+    else:
+        bpy.ops.object.mode_set(mode="PAINT_GREASE_PENCIL")
+
     start_time = time.time()
-    if bpy.context.mode not in {"PAINT_GREASE_PENCIL", "PAINT_GPENCIL"}:
-        if bpy.app.version < (4, 3, 0):
-            bpy.ops.object.mode_set(mode="PAINT_GPENCIL")
-        else:
-            bpy.ops.object.mode_set(mode="PAINT_GREASE_PENCIL")
-    bpy.ops.ed.undo()
-
-    print("measure_undo_time DONE")
-
+    with bpy.context.temp_override(**context_override):
+        bpy.ops.ed.undo()
     return time.time() - start_time
 
 
 def measure_save_time(filepath: str):
     start_time = time.time()
-
     bpy.ops.wm.save_as_mainfile(filepath=str(filepath))
-    print("measure_save_time DONE")
     return time.time() - start_time
 
 
@@ -250,39 +274,6 @@ def measure_load_time(filepath: str) -> float:
     bpy.ops.wm.open_mainfile(filepath=str(filepath))
     print("measure_load_time DONE")
     return time.time() - start_time
-
-
-# TODO: measure time it takes to play the whole timelone
-def play_framerange() -> float:
-    context_override = create_context()
-    with bpy.context.temp_override(**context_override):
-        # print(bpy.context.area, bpy.context.region)
-
-        scene = bpy.context.scene
-        scene.frame_current = 1
-
-        end_frame = scene.frame_end
-
-        # stop_data = {"stoptime": None}
-
-        def stop_playback(scene):
-            if scene.frame_current >= end_frame:
-                bpy.ops.screen.animation_cancel(restore_frame=False)
-                bpy.app.handlers.frame_change_post.remove(stop_playback)
-                print("play_framerange DONE")
-                # stop_data["stoptime"] = time.time()
-
-        # Remove old handlers to avoid duplicates
-        for handler in bpy.app.handlers.frame_change_post:
-            if handler.__name__ == "stop_playback":
-                bpy.app.handlers.frame_change_post.remove(handler)
-
-        bpy.app.handlers.frame_change_post.append(stop_playback)
-
-        bpy.ops.screen.animation_play()
-        # start_time = time.time()
-
-        # return stop_data["stoptime"] - start_time
 
 
 def read_filesize(filepath: str) -> int:
@@ -348,98 +339,104 @@ def create_test_dir(parent, folder_name):
 def test_file_opening(
     result_dir: Path, file_to_open: str, monitoring_interval: int = 100
 ):
-    result_dir_for_test = create_test_dir(result_dir, "test_file_opening")
-
-    cpu_monitor, gpu_monitor = start_cpu_gpu_monitoring(
-        result_dir_for_test, monitoring_interval
-    )
-    load_time = measure_load_time(file_to_open)
-    stop_cpu_gpu_monitoring(cpu_monitor, gpu_monitor)
-
-    with open(result_dir_for_test / "load_time.txt", "w") as f:
-        f.write(str(load_time))
-
-
-def test_play_framerange(result_dir: Path, monitoring_interval: int = 100):
-    result_dir_for_test = create_test_dir(result_dir, "test_play_framerange")
-
-    cpu_monitor, gpu_monitor = start_cpu_gpu_monitoring(
-        result_dir_for_test, monitoring_interval
-    )
-    play_time = play_framerange()
-    stop_cpu_gpu_monitoring(cpu_monitor, gpu_monitor)
-    with open(result_dir_for_test / "play_time.txt", "w") as f:
-        f.write(str(play_time))
-
-
-def test_fx_apply_time(
-    result_dir: Path, apply_to_all: bool = False, monitoring_interval: int = 100
-):
-    result_dir_for_test = create_test_dir(result_dir, "test_fx_apply_time")
-    cpu_monitor, gpu_monitor = start_cpu_gpu_monitoring(
-        result_dir_for_test, monitoring_interval
+    test_result_dir = result_dir / "test_file_opening"
+    test_function = functools.partial(measure_load_time, file_to_open)
+    base_test_function(
+        test_result_dir,
+        "load_time.txt",
+        test_function,
+        monitoring_interval,
     )
 
-    fx_apply_time = measure_fx_apply_time(apply_to_all)
 
-    stop_cpu_gpu_monitoring(cpu_monitor, gpu_monitor)
-
-    with open(result_dir_for_test / "fx_apply_time.txt", "w") as f:
-        f.write(str(fx_apply_time))
-
-
-def test_undo_time(result_dir, monitoring_interval: int = 100):
-    result_dir_for_test = create_test_dir(result_dir, "test_undo_time")
-    cpu_monitor, gpu_monitor = start_cpu_gpu_monitoring(
-        result_dir_for_test, monitoring_interval
+def test_fx_apply_time(result_dir: Path, monitoring_interval: int = 100):
+    test_result_dir = result_dir / "test_fx_apply_time"
+    base_test_function(
+        test_result_dir,
+        "fx_apply_time.txt",
+        measure_fx_apply_time,
+        monitoring_interval,
     )
 
-    undo_time = measure_undo_time()
-    stop_cpu_gpu_monitoring(cpu_monitor, gpu_monitor)
 
-    with open(result_dir_for_test / "undo_time.txt", "w") as f:
-        f.write(str(undo_time))
-
-
-def test_modifier_timing(
-    result_dir: Path, apply_to_all: bool = False, monitoring_interval: int = 100
-):
-    result_dir_for_test = create_test_dir(result_dir, "test_modifier_timing")
-    cpu_monitor, gpu_monitor = start_cpu_gpu_monitoring(
-        result_dir_for_test, monitoring_interval
+def test_modifier_timing(result_dir: Path, monitoring_interval: int = 100):
+    test_result_dir = result_dir / "test_modifier_timing"
+    base_test_function(
+        test_result_dir,
+        "modifier_timing.txt",
+        measure_modifier_apply_time,
+        monitoring_interval,
     )
-
-    modifier_apply_time = measure_modifier_apply_time(apply_to_all)
-    stop_cpu_gpu_monitoring(cpu_monitor, gpu_monitor)
-
-    with open(result_dir_for_test / "modifier_timing.txt", "w") as f:
-        f.write(str(modifier_apply_time))
 
 
 def test_context_switch_time(result_dir, monitoring_interval: int = 100):
-    result_dir_for_test = create_test_dir(result_dir, "test_context_switch_time")
-    cpu_monitor, gpu_monitor = start_cpu_gpu_monitoring(
-        result_dir_for_test, monitoring_interval
+    test_result_dir = result_dir / "test_modifier_timing"
+    base_test_function(
+        test_result_dir,
+        "context_switch_timing.txt",
+        measure_context_switch_time,
+        monitoring_interval,
     )
 
-    context_switch_time = measure_context_switch_time()
-    stop_cpu_gpu_monitoring(cpu_monitor, gpu_monitor)
 
-    with open(result_dir_for_test / "context_switch_time.txt", "w") as f:
-        f.write(str(context_switch_time))
-
-
-def test_measure_save_time(result_dir, monitoring_interval: int = 100):
-    result_dir_for_test = create_test_dir(result_dir, "test_save_time")
-    cpu_monitor, gpu_monitor = start_cpu_gpu_monitoring(
-        result_dir_for_test, monitoring_interval
+def test_measure_save_time(result_dir: Path, monitoring_interval: int) -> None:
+    test_result_dir = result_dir / "test_save_time"
+    test_function = functools.partial(
+        measure_save_time, test_result_dir / "measured_save_file.blend"
+    )
+    base_test_function(
+        test_result_dir, "save_time.txt", test_function, monitoring_interval
     )
 
-    save_time = measure_save_time(result_dir_for_test / "measured_save_file.blend")
-    stop_cpu_gpu_monitoring(cpu_monitor, gpu_monitor)
 
-    with open(result_dir_for_test / "save_time.txt", "w") as f:
-        f.write(str(save_time))
+def test_undo_time(result_dir, monitoring_interval: int = 100):
+    test_result_dir = result_dir / "test_undo_time"
+    base_test_function(
+        test_result_dir,
+        "undo_timing.txt",
+        measure_undo_time,
+        monitoring_interval,
+    )
+
+
+def base_test_function(
+    result_dir: Path, result_filename: str, func: Callable, monitoring_interval: int
+):
+    result_dir.mkdir(exist_ok=True)
+    cpu_monitor, gpu_monitor = start_cpu_gpu_monitoring(result_dir, monitoring_interval)
+    result = func()
+    stop_cpu_gpu_monitoring(cpu_monitor, gpu_monitor)
+    with open(result_dir / result_filename, "w") as f:
+        f.write(str(result))
+
+
+play_framerange_test: MeasurePlayFramerange = None
+file_loaded = False
+tests_finished = False
+
+
+def coordinate_tests_running(
+    test_file: Path, result_dir: Path, test_start_time: datetime.datetime
+):
+    global play_framerange_test, file_loaded
+
+    if not file_loaded:
+        # TODO: check how opening file time is calculated, seems off with bigger files
+        test_file_opening(result_dir, test_file)
+        write_metadata(test_file, test_start_time, result_dir / "metadata.json")
+
+    if play_framerange_test is None:
+        play_framerange_test = MeasurePlayFramerange(result_dir=result_dir)
+        play_framerange_test.start()
+    elif not play_framerange_test.running:
+        test_measure_save_time(result_dir)
+        test_context_switch_time(result_dir)
+        test_undo_time(result_dir)
+        test_fx_apply_time(result_dir)
+        test_modifier_timing(result_dir)
+        return None
+    dummy_val = 1.0
+    return dummy_val
 
 
 def start_measuring(test_file: Path, output_dir: Path):
@@ -448,54 +445,16 @@ def start_measuring(test_file: Path, output_dir: Path):
     result_dir: Path = output_dir / test_start_time.strftime("%Y-%m-%d_%H%M%S")
     result_dir.mkdir(parents=True)
 
-    # TODO: check how opening file time is calculated, seems off with bigger files
-    logger.debug("Opening File")
-    test_file_opening(result_dir, test_file)
-    logger.debug("Write Metadata of current Test")
-    write_metadata(test_file, test_start_time, result_dir / "metadata.json")
-
-    # TODO: add delay or smth so that everything starts once the measurement before has ended
-    logger.debug("Starting Test 'test_measure_save_time'")
     bpy.app.timers.register(
-        functools.partial(test_measure_save_time, result_dir), first_interval=10
+        functools.partial(
+            coordinate_tests_running, test_file, result_dir, test_start_time
+        ),
+        first_interval=2,
+        persistent=True,
     )
-    #test_measure_save_time(result_dir)
 
-    logger.debug("Starting Test 'test_play_framerange'")
-    bpy.app.timers.register(
-        functools.partial(test_play_framerange, result_dir), first_interval=10
-    )
-    #test_play_framerange(result_dir)
-
-    logger.debug("Starting Test 'test_context_switch_time'")
-    bpy.app.timers.register(
-        functools.partial(test_context_switch_time, result_dir), first_interval=10
-    )
-    # test_context_switch_time(result_dir)
-
-    logger.debug("Starting Test 'test_undo_time'")
-    bpy.app.timers.register(
-        functools.partial(test_undo_time, result_dir), first_interval=10
-    )
-    # test_context_switch_time(result_dir)
-
-    logger.debug("Starting Test 'test_fx_apply_time'")
-    bpy.app.timers.register(
-        functools.partial(test_fx_apply_time, result_dir), first_interval=20
-    )
-    # test_fx_apply_time(result_dir)
-
-    logger.debug("Starting Test 'test_modifier_timing'")
-    bpy.app.timers.register(
-        functools.partial(test_modifier_timing, result_dir), first_interval=30
-    )
-    # test_modifier_timing(result_dir)
-
-    # TODO: print(.... DONE) shows up before test is done. fix
 
 if __name__ == "__main__":
-    OUTPUT_DIR = Path(r"C:\Users\work\Documents\HdM\Bachelor\files\my-results")
-    TEST_FILE = Path(
-        r"C:\Users\work\Documents\HdM\Bachelor\files\my-test\test-05\test-05-01\test-05-01-01\test-05-01-01-01\4.2.13\test-05-01-01-01_4.2.13 LTS.blend"
-    )
+    OUTPUT_DIR = Path(r"c:\Users\awink\Desktop\work-dir")
+    TEST_FILE = Path(r"c:\Users\awink\Downloads\test-05-01-01-01_4.2.13 LTS.blend")
     start_measuring(TEST_FILE, OUTPUT_DIR)
