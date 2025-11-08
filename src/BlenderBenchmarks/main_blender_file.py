@@ -108,8 +108,13 @@ def stop_cpu_gpu_monitoring(*args: MonitoringBase):
 
 def create_context():
     screen = bpy.context.screen
+    context_override = bpy.context.copy()
+
     if screen is None:
-        screen = bpy.context.window_manager.windows[-1].screen
+        window = bpy.context.window_manager.windows[-1]
+        screen = window.screen
+        context_override["window"] = window
+        context_override["screen"] = screen
 
     for area in (a for a in screen.areas if a.type == "VIEW_3D"):
         region = next(
@@ -118,7 +123,6 @@ def create_context():
         if region is not None:
             break
 
-    context_override = bpy.context.copy()
     context_override["selected_objects"] = list(bpy.context.scene.objects)[0]
     context_override["area"] = area
     context_override["region"] = region
@@ -157,7 +161,7 @@ class MeasurePlayFramerange:
         self.end_frame = None
         self.start_time = None
         self.result_dir = result_dir
-        self.result_dir.mkdir(exist_ok=True)
+        self.result_dir.mkdir(exist_ok=True, parents=True)
         self.context = create_context()
         self.monitoring_interval = monitoring_interval
         self.gpu_monitor = None
@@ -173,34 +177,33 @@ class MeasurePlayFramerange:
             self.result_dir, self.monitoring_interval
         )
 
-    def setup(self):
+    def setup(self, handler_function):
         for handler in bpy.app.handlers.frame_change_post:
             if handler.__name__ == "stop_playback":
                 bpy.app.handlers.frame_change_post.remove(handler)
-        bpy.app.handlers.frame_change_post.append(self.stop_playback)
+        bpy.app.handlers.frame_change_post.append(handler_function)
 
     def start(self):
-        self.setup()
+        self.start_cpu_gpu_monitoring()
         self._running = True
-        with bpy.context.temp_override(**self.context_override):
+        with bpy.context.temp_override(**self.context):
             scene = bpy.context.scene
             scene.frame_current = 1
             self.end_frame = scene.frame_end
             self.start_time = time.time()
             bpy.ops.screen.animation_play()
 
-    def stop_playback(self, scene):
-        if scene.frame_current >= self.end_frame:
-            measured_time = time.time() - self.start_time
-            self.write_timing_result(measured_time, "play_time.txt")
-            bpy.ops.screen.animation_cancel(restore_frame=False)
-            bpy.app.handlers.frame_change_post.remove(self.stop_playback)
-            self.cpu_monitor.stop()
-            self.gpu_monitor.stop()
+    def stop(self):
+        measured_time = time.time() - self.start_time
+        self.write_timing_result(measured_time, "play_time.txt")
+        self._running = False
+        self.cpu_monitor.stop()
+        self.gpu_monitor.stop()
 
     def write_timing_result(self, result: float, filename: str):
         with open(self.result_dir / filename, "w") as f:
             f.write(str(result))
+        print("Wrote result to", self.result_dir / filename)
 
 
 def measure_modifier_apply_time(noise_scale: int = 1) -> float:
@@ -209,6 +212,9 @@ def measure_modifier_apply_time(noise_scale: int = 1) -> float:
     noise_scale = noise_scale
     with bpy.context.temp_override(**context_override):
         start_time = time.time()
+        print(bpy.context.mode)
+        if bpy.context.mode != "OBJECT":
+            bpy.ops.object.mode_set(mode="OBJECT")
         # TODO: try to select correct active object instead
         active_obj = bpy.context.active_object
         if active_obj.type == "GPENCIL":
@@ -370,7 +376,7 @@ def test_modifier_timing(result_dir: Path, monitoring_interval: int = 100):
 
 
 def test_context_switch_time(result_dir, monitoring_interval: int = 100):
-    test_result_dir = result_dir / "test_modifier_timing"
+    test_result_dir = result_dir / "test_context_switch_time"
     base_test_function(
         test_result_dir,
         "context_switch_timing.txt",
@@ -415,6 +421,18 @@ file_loaded = False
 tests_finished = False
 
 
+def stop_playback(scene, other_arg):
+    global play_framerange_test
+    if play_framerange_test is None:
+        print(bpy.app.handlers.frame_change_post)
+        print()
+        print(stop_playback)
+    if scene.frame_current >= scene.frame_end:
+        bpy.app.handlers.frame_change_post.remove(stop_playback)
+        bpy.ops.screen.animation_cancel(restore_frame=False)
+        play_framerange_test.stop()
+
+
 def coordinate_tests_running(
     test_file: Path, result_dir: Path, test_start_time: datetime.datetime
 ):
@@ -424,18 +442,24 @@ def coordinate_tests_running(
         # TODO: check how opening file time is calculated, seems off with bigger files
         test_file_opening(result_dir, test_file)
         write_metadata(test_file, test_start_time, result_dir / "metadata.json")
+        file_loaded = True
 
     if play_framerange_test is None:
-        play_framerange_test = MeasurePlayFramerange(result_dir=result_dir)
+        play_framerange_test = MeasurePlayFramerange(
+            result_dir=(result_dir / "test_play_framerange")
+        )
+        play_framerange_test.setup(stop_playback)
         play_framerange_test.start()
     elif not play_framerange_test.running:
-        test_measure_save_time(result_dir)
-        test_context_switch_time(result_dir)
-        test_undo_time(result_dir)
-        test_fx_apply_time(result_dir)
-        test_modifier_timing(result_dir)
+        print("Play_framerange_test finished")
+        test_measure_save_time(result_dir, 100)
+        test_context_switch_time(result_dir, 100)
+        # test_undo_time(result_dir, 100)
+        test_fx_apply_time(result_dir, 100)
+        test_modifier_timing(result_dir, 100)
+        print("Tests finished")
         return None
-    dummy_val = 1.0
+    dummy_val = 2.0
     return dummy_val
 
 
