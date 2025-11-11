@@ -13,7 +13,7 @@ import bpy
 
 logger = logging.getLogger()
 logging.basicConfig(
-    filename=r"C:\Users\awink\Desktop\Blender-Benchmarks\log.log",
+    filename=r"C:\Users\work\Documents\HdM\Bachelor\files\my-results\log.log",
     encoding="utf-8",
     level=logging.DEBUG,
 )
@@ -59,7 +59,7 @@ class MonitoringBase:
 
 class CPUMonitoring(MonitoringBase):
     # TODO: format
-    PATH_TO_SCRIPT = r"C:\Users\awink\Desktop\Blender-Benchmarks\scripts\cpu_monitor.py"
+    PATH_TO_SCRIPT = r"C:\Users\work\Documents\HdM\Bachelor\code\Blender-Benchmarks\scripts\cpu_monitor.py"
 
     @property
     def command_args(self):
@@ -138,7 +138,6 @@ def measure_context_switch_time():
 
     context_override = create_context()
     with bpy.context.temp_override(**context_override):
-        # print(bpy.context.area, bpy.context.region)
 
         start_time = time.time()
 
@@ -152,8 +151,12 @@ def measure_context_switch_time():
 
 
 def set_noise_modifier(obj, modifier_type: str, noise_scale: int):
-    mod = obj.grease_pencil_modifiers.new(name="NOISE", type=modifier_type)
+    if bpy.app.version < (4, 3, 0):
+        mod = obj.grease_pencil_modifiers.new(name="NOISE", type=modifier_type)
+    else:
+        mod = obj.modifiers.new(name="NOISE", type=modifier_type)
     mod.noise_scale = noise_scale
+    print(mod.name)
 
 
 class MeasurePlayFramerange:
@@ -227,16 +230,17 @@ def measure_modifier_apply_time(noise_scale: int = 1) -> float:
             )
 
         set_noise_modifier(active_obj, modifier_type, noise_scale)
-        bpy.ops.object.gpencil_modifier_apply(modifier="NOISE")
+        if bpy.app.version < (4, 3, 0):
+            bpy.ops.object.gpencil_modifier_apply(modifier="NOISE")
+        else:
+            bpy.ops.object.modifier_apply(modifier="NOISE")
 
-        return time.time() - start_time
+    return time.time() - start_time
 
 
 def measure_fx_apply_time() -> float:
-    if bpy.app.version < (4, 3, 0):
-        bpy.ops.object.mode_set(mode="EDIT_GPENCIL")
-    else:
-        bpy.ops.object.mode_set(mode="EDIT")
+    if bpy.context.mode != "OBJECT":
+        bpy.ops.object.mode_set(mode="OBJECT")
 
     context_override = create_context()
     context_override["mode"] = "OBJECT"
@@ -322,16 +326,17 @@ def count_gp_contents() -> GP_Contents_Count:
 def write_metadata(
     test_file_path: Path, test_start_time: datetime.datetime, output_filepath: Path
 ):
+    base = Path(r"C:\Users\work\Documents\HdM\Bachelor\files\my-test")
     gp_contents_counts = count_gp_contents()
     meta_data = dict()
     meta_data["version"] = bpy.app.version_string
-    meta_data["test file path"] = str(test_file_path)
+    meta_data["test file path"] = str(test_file_path.relative_to(base))
     meta_data["timestamp"] = test_start_time.isoformat()
-    meta_data["file size"] = read_filesize(test_file_path)
+    meta_data["file size in bytes"] = read_filesize(test_file_path)
     meta_data["gp objects"] = gp_contents_counts.objects
     meta_data["gp layers"] = gp_contents_counts.layers
     meta_data["gp points"] = gp_contents_counts.points
-    meta_data["framerange"] = bpy.data.scenes["Scene"].frame_end
+    meta_data["frame range"] = bpy.data.scenes["Scene"].frame_end
     with open(output_filepath, "w") as f:
         json.dump(meta_data, f, indent=4)
 
@@ -342,10 +347,10 @@ def create_test_dir(parent, folder_name):
     return new_dir
 
 
-def test_file_opening(
+def test_measure_file_opening(
     result_dir: Path, file_to_open: str, monitoring_interval: int = 100
 ):
-    test_result_dir = result_dir / "test_file_opening"
+    test_result_dir = result_dir / "test_measure_file_opening"
     test_function = functools.partial(measure_load_time, file_to_open)
     base_test_function(
         test_result_dir,
@@ -355,38 +360,38 @@ def test_file_opening(
     )
 
 
-def test_fx_apply_time(result_dir: Path, monitoring_interval: int = 100):
-    test_result_dir = result_dir / "test_fx_apply_time"
+def test_measure_fx(result_dir: Path, monitoring_interval: int = 100):
+    test_result_dir = result_dir / "test_measure_fx"
     base_test_function(
         test_result_dir,
-        "fx_apply_time.txt",
+        "fx_time.txt",
         measure_fx_apply_time,
         monitoring_interval,
     )
 
 
-def test_modifier_timing(result_dir: Path, monitoring_interval: int = 100):
-    test_result_dir = result_dir / "test_modifier_timing"
+def test_measure_modifier(result_dir: Path, monitoring_interval: int = 100):
+    test_result_dir = result_dir / "test_measure_modifier"
     base_test_function(
         test_result_dir,
-        "modifier_timing.txt",
+        "modifier_time.txt",
         measure_modifier_apply_time,
         monitoring_interval,
     )
 
 
-def test_context_switch_time(result_dir, monitoring_interval: int = 100):
-    test_result_dir = result_dir / "test_context_switch_time"
+def test_measure_context_switch(result_dir, monitoring_interval: int = 100):
+    test_result_dir = result_dir / "test_measure_context_switch"
     base_test_function(
         test_result_dir,
-        "context_switch_timing.txt",
+        "context_switch_time.txt",
         measure_context_switch_time,
         monitoring_interval,
     )
 
 
-def test_measure_save_time(result_dir: Path, monitoring_interval: int) -> None:
-    test_result_dir = result_dir / "test_save_time"
+def test_measure_save(result_dir: Path, monitoring_interval: int) -> None:
+    test_result_dir = result_dir / "test_measure_save"
     test_function = functools.partial(
         measure_save_time, test_result_dir / "measured_save_file.blend"
     )
@@ -399,7 +404,7 @@ def test_undo_time(result_dir, monitoring_interval: int = 100):
     test_result_dir = result_dir / "test_undo_time"
     base_test_function(
         test_result_dir,
-        "undo_timing.txt",
+        "undo_time.txt",
         measure_undo_time,
         monitoring_interval,
     )
@@ -440,7 +445,7 @@ def coordinate_tests_running(
 
     if not file_loaded:
         # TODO: check how opening file time is calculated, seems off with bigger files
-        test_file_opening(result_dir, test_file)
+        test_measure_file_opening(result_dir, test_file)
         write_metadata(test_file, test_start_time, result_dir / "metadata.json")
         file_loaded = True
 
@@ -452,17 +457,22 @@ def coordinate_tests_running(
         play_framerange_test.start()
     elif not play_framerange_test.running:
         print("Play_framerange_test finished")
-        test_measure_save_time(result_dir, 100)
-        test_context_switch_time(result_dir, 100)
+        test_measure_save(result_dir, 100)
+        test_measure_context_switch(result_dir, 100)
+        # TODO: undo
         # test_undo_time(result_dir, 100)
-        test_fx_apply_time(result_dir, 100)
-        test_modifier_timing(result_dir, 100)
+        test_measure_fx(result_dir, 100)
+        test_measure_modifier(result_dir, 100)
         print("Tests finished")
+        
+        # Close file when finished
+        #bpy.ops.wm.quit_blender('INVOKE_DEFAULT')
+
         return None
     dummy_val = 2.0
     return dummy_val
 
-
+# TODO: change 100ms to measure more often
 def start_measuring(test_file: Path, output_dir: Path):
     test_start_time = datetime.datetime.now()
     logger.debug("Creating Output Directory")
@@ -479,6 +489,20 @@ def start_measuring(test_file: Path, output_dir: Path):
 
 
 if __name__ == "__main__":
-    OUTPUT_DIR = Path(r"c:\Users\awink\Desktop\work-dir")
-    TEST_FILE = Path(r"c:\Users\awink\Downloads\test-05-01-01-01_4.2.13 LTS.blend")
+ 
+    #test 4.2
+    TEST_FILE = Path(r"C:\Users\work\Documents\HdM\Bachelor\files\my-test\test-01\test-01-01\test-01-01-01\test-01-01-01-01\4.2.13\test-01-01-01-01_4.2.13 LTS.blend")
+    # TEST_FILE = Path(r"C:\Users\work\Documents\HdM\Bachelor\files\my-test\test-01\test-01-03\test-01-03-01\test-01-03-01-01\4.2.13\test-01-03-01-01_4.2.13 LTS.blend")
+    
+    # test 4.5
+    # TEST_FILE = Path(r"C:\Users\work\Documents\HdM\Bachelor\files\my-test\test-01\test-01-01\test-01-01-01\test-01-01-01-01\4.5.2\test-01-01-01-01_4.5.2 LTS.blend")
+    # TEST_FILE = Path(r"C:\Users\work\Documents\HdM\Bachelor\files\my-test\test-01\test-01-03\test-01-03-01\test-01-03-01-01\4.5.2\test-01-03-01-01_4.5.2 LTS.blend")
+    parts = list(TEST_FILE.parts)
+    if "my-test" in parts:
+        i = parts.index("my-test")
+        new_parts = parts[:i] + ["my-results"] + parts[i+1:]
+        OUTPUT_DIR = Path(*new_parts).parent
+
     start_measuring(TEST_FILE, OUTPUT_DIR)
+
+
