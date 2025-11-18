@@ -1,5 +1,6 @@
 import datetime
 import functools
+import gc
 import json
 import logging
 import os
@@ -13,150 +14,16 @@ import bpy
 
 logger = logging.getLogger()
 logging.basicConfig(
-    filename=r"C:\Users\work\Documents\HdM\Bachelor\files\my-results\log.log",
+    filename=r"C:\Users\awink\Desktop\BA\my-results\log.log",
     encoding="utf-8",
     level=logging.DEBUG,
 )
 logger.setLevel(logging.DEBUG)
 
-
-class MonitoringBase:
-    def __init__(self, logfile_path, delay):
-        self.process = None
-        self.logfile = None
-        self.logfile_path = logfile_path
-        self.delay = delay
-        with open(logfile_path, "w") as _:
-            pass
-
-    def check_if_already_running(self):
-        if self.process is not None or self.logfile is not None:
-            raise RuntimeError("Can't start logging if already started")
-
-    def start(self):
-        self.check_if_already_running()
-
-        self.logfile = open(self.logfile_path, "a")
-        self.process = subprocess.Popen(
-            self.command_args,
-            stdout=self.logfile,
-        )
-
-    def stop(self):
-        if self.process is not None:
-            self.process.terminate()
-            self.process.wait(1)
-        if self.logfile is not None:
-            self.logfile.close()
-
-    @property
-    def command_args(self):
-        raise NotImplementedError()
-
-    def __del__(self):
-        self.stop()
-
-
-class CPUMonitoring(MonitoringBase):
-    # TODO: format
-    PATH_TO_SCRIPT = r"C:\Users\work\Documents\HdM\Bachelor\code\Blender-Benchmarks\scripts\cpu_monitor.py"
-
-    @property
-    def command_args(self):
-        return [
-            "py.exe",
-            self.PATH_TO_SCRIPT,
-            "--loop-ms",
-            str(self.delay),
-            str(self.logfile_path),
-        ]
-
-    def start(self):
-        if not Path(self.PATH_TO_SCRIPT).exists():
-            raise RuntimeError("Couldn't find Monitoring Script")
-        self.check_if_already_running()
-
-        self.process = subprocess.Popen(
-            self.command_args,
-        )
-
-
-class GPUMonitoring(MonitoringBase):
-    query = "--query-gpu=timestamp,pstate,temperature.gpu,utilization.gpu,memory.free,memory.used"
-
-    @property
-    def command_args(self):
-        return ["nvidia-smi", self.query, "--format=csv", f"--loop-ms={self.delay}"]
-
-
-def start_cpu_gpu_monitoring(
-    result_dir: Path, delay: int
-) -> tuple[MonitoringBase, MonitoringBase]:
-    gpu_monitor = GPUMonitoring(logfile_path=result_dir / "gpu.csv", delay=delay)
-    cpu_monitor = CPUMonitoring(logfile_path=result_dir / "cpu.csv", delay=delay)
-
-    cpu_monitor.start()
-    gpu_monitor.start()
-
-    return cpu_monitor, gpu_monitor
-
-
-def stop_cpu_gpu_monitoring(*args: MonitoringBase):
-    for arg in args:
-        arg.stop()
-
-
-def create_context():
-    screen = bpy.context.screen
-    context_override = bpy.context.copy()
-
-    if screen is None:
-        window = bpy.context.window_manager.windows[-1]
-        screen = window.screen
-        context_override["window"] = window
-        context_override["screen"] = screen
-
-    for area in (a for a in screen.areas if a.type == "VIEW_3D"):
-        region = next(
-            (region for region in area.regions if region.type == "WINDOW"), None
-        )
-        if region is not None:
-            break
-
-    context_override["selected_objects"] = list(bpy.context.scene.objects)[0]
-    context_override["area"] = area
-    context_override["region"] = region
-    return context_override
-
-
-def measure_context_switch_time():
-    if bpy.context.mode not in "OBJECT":
-        bpy.ops.object.mode_set(mode="OBJECT")
-
-    obj = bpy.data.objects["GP_Obj_1"]
-    obj.select_set(True)
-
-    context_override = create_context()
-    with bpy.context.temp_override(**context_override):
-
-        start_time = time.time()
-
-        if bpy.app.version < (4, 3, 0):
-            bpy.ops.object.mode_set(mode="EDIT_GPENCIL")
-        else:
-            bpy.ops.object.mode_set(mode="EDIT")
-    print("measure_context_switch_time DONE")
-
-    return time.time() - start_time
-
-
-def set_noise_modifier(obj, modifier_type: str, noise_scale: int):
-    if bpy.app.version < (4, 3, 0):
-        mod = obj.grease_pencil_modifiers.new(name="NOISE", type=modifier_type)
-    else:
-        mod = obj.modifiers.new(name="NOISE", type=modifier_type)
-    mod.noise_scale = noise_scale
-    print(mod.name)
+VERSION = "4.2.13"
+TEST_DIR = Path(r"C:\Users\awink\Desktop\BA\my-test")
+TEST_FILES = list(TEST_DIR.glob(f"**/{VERSION}/**/*.blend"))
+OUTPUT_DIR = Path(r"C:\Users\awink\Desktop\BA\my-results")
 
 
 class MeasurePlayFramerange:
@@ -207,6 +74,176 @@ class MeasurePlayFramerange:
         with open(self.result_dir / filename, "w") as f:
             f.write(str(result))
         print("Wrote result to", self.result_dir / filename)
+
+
+class MonitoringBase:
+    def __init__(self, logfile_path, delay):
+        self.process = None
+        self.logfile = None
+        self.logfile_path = logfile_path
+        self.delay = delay
+        with open(logfile_path, "w") as _:
+            pass
+
+    def check_if_already_running(self):
+        if self.process is not None or self.logfile is not None:
+            raise RuntimeError("Can't start logging if already started")
+
+    def start(self):
+        self.check_if_already_running()
+
+        self.logfile = open(self.logfile_path, "a")
+        self.process = subprocess.Popen(
+            self.command_args,
+            stdout=self.logfile,
+        )
+
+    def stop(self):
+        if self.process is not None:
+            self.process.terminate()
+            self.process.wait(1)
+        if self.logfile is not None:
+            self.logfile.close()
+
+    @property
+    def command_args(self):
+        raise NotImplementedError()
+
+    def __del__(self):
+        self.stop()
+
+
+class CPUMonitoring(MonitoringBase):
+    # TODO: format
+    PATH_TO_SCRIPT = r"C:\Users\awink\Desktop\Blender-Benchmarks\scripts\cpu_monitor.py"
+
+    @property
+    def command_args(self):
+        return [
+            "py.exe",
+            self.PATH_TO_SCRIPT,
+            "--loop-ms",
+            str(self.delay),
+            str(self.logfile_path),
+        ]
+
+    def start(self):
+        if not Path(self.PATH_TO_SCRIPT).exists():
+            raise RuntimeError("Couldn't find Monitoring Script")
+        self.check_if_already_running()
+
+        self.process = subprocess.Popen(
+            self.command_args,
+        )
+
+
+class GPUMonitoring(MonitoringBase):
+    query = "--query-gpu=timestamp,pstate,temperature.gpu,utilization.gpu,memory.free,memory.used"
+
+    @property
+    def command_args(self):
+        return ["nvidia-smi", self.query, "--format=csv", f"--loop-ms={self.delay}"]
+
+
+play_framerange_test: MeasurePlayFramerange = None
+file_loaded = False
+is_a_test_running = False
+
+
+def start_cpu_gpu_monitoring(
+    result_dir: Path, delay: int
+) -> tuple[MonitoringBase, MonitoringBase]:
+    gpu_monitor = GPUMonitoring(logfile_path=result_dir / "gpu.csv", delay=delay)
+    cpu_monitor = CPUMonitoring(logfile_path=result_dir / "cpu.csv", delay=delay)
+
+    cpu_monitor.start()
+    gpu_monitor.start()
+    time.sleep(0.2)
+
+    return cpu_monitor, gpu_monitor
+
+
+def stop_cpu_gpu_monitoring(*args: MonitoringBase):
+    for arg in args:
+        arg.stop()
+
+
+def create_context():
+    screen = bpy.context.screen
+    context_override = bpy.context.copy()
+
+    if screen is None:
+        window = bpy.context.window_manager.windows[-1]
+        screen = window.screen
+        context_override["window"] = window
+        context_override["screen"] = screen
+
+    for area in (a for a in screen.areas if a.type == "VIEW_3D"):
+        region = next(
+            (region for region in area.regions if region.type == "WINDOW"), None
+        )
+        if region is not None:
+            break
+
+    context_override["selected_objects"] = list(bpy.context.scene.objects)[0]
+    context_override["area"] = area
+    context_override["region"] = region
+    return context_override
+
+
+# TODO check if it works
+def reset_blender_memory():
+    for obj in bpy.data.objects:
+        for mod in obj.modifiers:
+            if hasattr(mod, "point_cache"):
+                mod.point_cache.clear()
+
+    for psys in bpy.data.particles:
+        psys.point_cache.clear()
+
+    for img in list(bpy.data.images):
+        if img.users > 0:
+            img.user_clear()
+        bpy.data.images.remove(img)
+
+    bpy.ops.outliner.orphans_purge(
+        do_local_ids=True, do_linked_ids=True, do_recursive=True
+    )
+
+    bpy.ops.ed.undo_push(message="Reset undo stack")
+    bpy.ops.ed.undo_history()
+
+    gc.collect()
+
+
+def measure_context_switch_time():
+    if bpy.context.mode not in "OBJECT":
+        bpy.ops.object.mode_set(mode="OBJECT")
+
+    obj = bpy.data.objects["GP_Obj_1"]
+    obj.select_set(True)
+
+    context_override = create_context()
+    with bpy.context.temp_override(**context_override):
+
+        start_time = time.time()
+
+        if bpy.app.version < (4, 3, 0):
+            bpy.ops.object.mode_set(mode="EDIT_GPENCIL")
+        else:
+            bpy.ops.object.mode_set(mode="EDIT")
+    print("measure_context_switch_time DONE")
+
+    return time.time() - start_time
+
+
+def set_noise_modifier(obj, modifier_type: str, noise_scale: int):
+    if bpy.app.version < (4, 3, 0):
+        mod = obj.grease_pencil_modifiers.new(name="NOISE", type=modifier_type)
+    else:
+        mod = obj.modifiers.new(name="NOISE", type=modifier_type)
+    mod.noise_scale = noise_scale
+    print(mod.name)
 
 
 def measure_modifier_apply_time(noise_scale: int = 1) -> float:
@@ -326,7 +363,7 @@ def count_gp_contents() -> GP_Contents_Count:
 def write_metadata(
     test_file_path: Path, test_start_time: datetime.datetime, output_filepath: Path
 ):
-    base = Path(r"C:\Users\work\Documents\HdM\Bachelor\files\my-test")
+    base = Path(r"C:\Users\awink\Desktop\BA\my-test")
     gp_contents_counts = count_gp_contents()
     meta_data = dict()
     meta_data["version"] = bpy.app.version_string
@@ -421,11 +458,6 @@ def base_test_function(
         f.write(str(result))
 
 
-play_framerange_test: MeasurePlayFramerange = None
-file_loaded = False
-tests_finished = False
-
-
 def stop_playback(scene, other_arg):
     global play_framerange_test
     if play_framerange_test is None:
@@ -464,16 +496,21 @@ def coordinate_tests_running(
         test_measure_fx(result_dir, 100)
         test_measure_modifier(result_dir, 100)
         print("Tests finished")
-        
-        # Close file when finished
-        #bpy.ops.wm.quit_blender('INVOKE_DEFAULT')
 
+        # Close file when finished
+        # bpy.ops.wm.quit_blender('INVOKE_DEFAULT')
+        reset_blender_memory()
+
+        reset_testing()
         return None
     dummy_val = 2.0
     return dummy_val
 
-# TODO: change 100ms to measure more often
+
+# TODO: change 100ms to measure more often?
 def start_measuring(test_file: Path, output_dir: Path):
+    global is_a_test_running
+    is_a_test_running = True
     test_start_time = datetime.datetime.now()
     logger.debug("Creating Output Directory")
     result_dir: Path = output_dir / test_start_time.strftime("%Y-%m-%d_%H%M%S")
@@ -488,21 +525,38 @@ def start_measuring(test_file: Path, output_dir: Path):
     )
 
 
+def reset_testing():
+    global play_framerange_test, file_loaded, is_a_test_running
+    play_framerange_test = None
+    file_loaded = False
+    is_a_test_running = False
+
+
+def coordinate_multiple_tests():
+    if len(TEST_FILES) == 0:
+        return None
+    global is_a_test_running
+    if not is_a_test_running:
+        test_file = TEST_FILES.pop(0)
+        result_directory = OUTPUT_DIR / test_file.parent.relative_to(TEST_DIR)
+        start_measuring(test_file, result_directory)
+    return 2.0
+
+
 if __name__ == "__main__":
- 
-    #test 4.2
-    TEST_FILE = Path(r"C:\Users\work\Documents\HdM\Bachelor\files\my-test\test-01\test-01-01\test-01-01-01\test-01-01-01-01\4.2.13\test-01-01-01-01_4.2.13 LTS.blend")
-    # TEST_FILE = Path(r"C:\Users\work\Documents\HdM\Bachelor\files\my-test\test-01\test-01-03\test-01-03-01\test-01-03-01-01\4.2.13\test-01-03-01-01_4.2.13 LTS.blend")
-    
+
+    bpy.app.timers.register(
+        coordinate_multiple_tests,
+        first_interval=2,
+        persistent=True,
+    )
+
+    # test 4.2.13
+    # TEST_FILE = Path(
+    #   r"C:\Users\work\Documents\HdM\Bachelor\files\my-test\test-01\test-01-01\test-01-01-01\test-01-01-01-01\4.2.13\test-01-01-01-01_4.2.13 LTS.blend"
+    # )
     # test 4.5
     # TEST_FILE = Path(r"C:\Users\work\Documents\HdM\Bachelor\files\my-test\test-01\test-01-01\test-01-01-01\test-01-01-01-01\4.5.2\test-01-01-01-01_4.5.2 LTS.blend")
-    # TEST_FILE = Path(r"C:\Users\work\Documents\HdM\Bachelor\files\my-test\test-01\test-01-03\test-01-03-01\test-01-03-01-01\4.5.2\test-01-03-01-01_4.5.2 LTS.blend")
-    parts = list(TEST_FILE.parts)
-    if "my-test" in parts:
-        i = parts.index("my-test")
-        new_parts = parts[:i] + ["my-results"] + parts[i+1:]
-        OUTPUT_DIR = Path(*new_parts).parent
 
-    start_measuring(TEST_FILE, OUTPUT_DIR)
-
-
+    # result_directory = OUTPUT_DIR / TEST_FILE.parent.relative_to(TEST_DIR)
+    # start_measuring(TEST_FILE, result_directory)
