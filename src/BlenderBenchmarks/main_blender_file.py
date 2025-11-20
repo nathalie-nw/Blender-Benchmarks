@@ -61,6 +61,7 @@ class MeasurePlayFramerange:
             scene.frame_current = 1
             self.end_frame = scene.frame_end
             self.start_time = time.time()
+            bpy.context.space_data.shading.type = "MATERIAL"
             bpy.ops.screen.animation_play()
 
     def stop(self):
@@ -476,7 +477,6 @@ def coordinate_tests_running(
     global play_framerange_test, file_loaded
 
     if not file_loaded:
-        # TODO: check how opening file time is calculated, seems off with bigger files
         test_measure_file_opening(result_dir, test_file)
         write_metadata(test_file, test_start_time, result_dir / "metadata.json")
         file_loaded = True
@@ -497,8 +497,6 @@ def coordinate_tests_running(
         test_measure_modifier(result_dir, 100)
         print("Tests finished")
 
-        # Close file when finished
-        # bpy.ops.wm.quit_blender('INVOKE_DEFAULT')
         reset_blender_memory()
 
         reset_testing()
@@ -507,7 +505,6 @@ def coordinate_tests_running(
     return dummy_val
 
 
-# TODO: change 100ms to measure more often?
 def start_measuring(test_file: Path, output_dir: Path):
     global is_a_test_running
     is_a_test_running = True
@@ -544,19 +541,9 @@ def coordinate_multiple_tests():
 
 
 if __name__ == "__main__":
-
+    time.sleep(120)
     bpy.app.timers.register(
         coordinate_multiple_tests,
         first_interval=2,
         persistent=True,
     )
-
-    # test 4.2.13
-    # TEST_FILE = Path(
-    #   r"C:\Users\work\Documents\HdM\Bachelor\files\my-test\test-01\test-01-01\test-01-01-01\test-01-01-01-01\4.2.13\test-01-01-01-01_4.2.13 LTS.blend"
-    # )
-    # test 4.5
-    # TEST_FILE = Path(r"C:\Users\work\Documents\HdM\Bachelor\files\my-test\test-01\test-01-01\test-01-01-01\test-01-01-01-01\4.5.2\test-01-01-01-01_4.5.2 LTS.blend")
-
-    # result_directory = OUTPUT_DIR / TEST_FILE.parent.relative_to(TEST_DIR)
-    # start_measuring(TEST_FILE, result_directory)
